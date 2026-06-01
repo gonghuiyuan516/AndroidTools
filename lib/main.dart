@@ -735,38 +735,47 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
       _appendLog('输入 APK：$apkPath');
       _appendLog('输出目录：$outputDir');
       _appendLog('签名别名：$alias');
+      final bundledJava = _resolveBundledJava();
+      final bundledToolJar = _resolveBundledJar('apk-sign-tool.jar');
+      final bundledApkSigJar = _resolveBundledJar('apksig.jar');
 
-      if (_scheme.requiresApkSigner) {
-        final apksigner = _findExecutable('apksigner');
-        if (apksigner == null) {
-          _appendLog('未找到 apksigner，无法执行 ${_scheme.label}');
-          _appendLog('请安装 Android Build Tools 并将 apksigner 加入 PATH。');
-          _showMessage('缺少 apksigner，当前仅支持 V1');
-          return;
-        }
-      }
-
-      final jarsigner = _findExecutable('jarsigner');
-      if (jarsigner == null) {
-        _appendLog('未找到 jarsigner，无法执行 V1 签名。');
-        _showMessage('未找到 jarsigner');
+      if (bundledJava == null || bundledToolJar == null || bundledApkSigJar == null) {
+        _appendLog('内置签名引擎缺失，应用当前目录中未找到完整工具链。');
+        _appendLog('要求存在：signer/runtime/bin/java(.exe) 与 flutter assets 中的签名 jars。');
+        _showMessage('内置签名引擎缺失');
         return;
       }
 
       final outputPath = _buildOutputPath(apkFile.path, outputDir);
       final copiedFile = await apkFile.copy(outputPath);
       _appendLog('已创建输出文件：${copiedFile.path}');
-      _appendLog('调用 jarsigner 执行签名...');
+      _appendLog('使用应用内置签名引擎...');
+      _appendLog('内置 Java：$bundledJava');
 
-      final result = await Process.run(jarsigner, [
-        '-keystore',
-        keystorePath,
-        '-storepass',
-        storePassword,
-        '-keypass',
-        keyPassword,
+      final result = await Process.run(bundledJava, [
+        '-cp',
+        '$bundledToolJar${Platform.isWindows ? ';' : ':'}$bundledApkSigJar',
+        'ApkSignTool',
+        '--input',
         copiedFile.path,
+        '--output',
+        copiedFile.path,
+        '--keystore',
+        keystorePath,
+        '--alias',
         alias,
+        '--store-pass',
+        storePassword,
+        '--key-pass',
+        keyPassword,
+        '--enable-v1',
+        _enableV1.toString(),
+        '--enable-v2',
+        _enableV2.toString(),
+        '--enable-v3',
+        _enableV3.toString(),
+        '--enable-v4',
+        _enableV4.toString(),
       ]);
 
       final stdout = result.stdout.toString().trim();
@@ -809,26 +818,37 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
     return '$outputDir${Platform.pathSeparator}${name}_sign.apk';
   }
 
-  String? _findExecutable(String name) {
-    final pathValue = Platform.environment['PATH'] ?? '';
-    final separator = Platform.isWindows ? ';' : ':';
-    final extension = Platform.isWindows ? '.exe' : '';
+  bool get _enableV1 => true;
 
-    for (final dir in pathValue.split(separator)) {
-      final trimmed = dir.trim();
-      if (trimmed.isEmpty) {
-        continue;
-      }
+  bool get _enableV2 =>
+      _scheme == SignatureScheme.v2 ||
+      _scheme == SignatureScheme.v3 ||
+      _scheme == SignatureScheme.v4;
 
-      final candidate = File(
-        '$trimmed${Platform.pathSeparator}$name$extension',
-      );
-      if (candidate.existsSync()) {
-        return candidate.path;
-      }
-    }
+  bool get _enableV3 =>
+      _scheme == SignatureScheme.v3 || _scheme == SignatureScheme.v4;
 
-    return null;
+  bool get _enableV4 => _scheme == SignatureScheme.v4;
+
+  String? _resolveBundledJava() {
+    final executableDir = File(Platform.resolvedExecutable).parent.path;
+    final javaName = Platform.isWindows ? 'java.exe' : 'java';
+    final path = '$executableDir${Platform.pathSeparator}signer'
+        '${Platform.pathSeparator}runtime'
+        '${Platform.pathSeparator}bin'
+        '${Platform.pathSeparator}$javaName';
+    return File(path).existsSync() ? path : null;
+  }
+
+  String? _resolveBundledJar(String fileName) {
+    final executableDir = File(Platform.resolvedExecutable).parent.path;
+    final path = '$executableDir${Platform.pathSeparator}data'
+        '${Platform.pathSeparator}flutter_assets'
+        '${Platform.pathSeparator}assets'
+        '${Platform.pathSeparator}signer'
+        '${Platform.pathSeparator}windows'
+        '${Platform.pathSeparator}$fileName';
+    return File(path).existsSync() ? path : null;
   }
 
   void _appendLog(String message) {
