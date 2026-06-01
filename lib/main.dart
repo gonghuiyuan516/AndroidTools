@@ -21,13 +21,25 @@ class AndroidToolsApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         title: 'AndroidTools',
         theme: themeData.systemThemeDataLight,
-        home: const ApkSignerPage(),
+        home: const PackageSignerPage(),
       ),
     );
   }
 }
 
+enum PackageType {
+  apk('APK', 'APK文件', ['apk']),
+  aab('AAB', 'AAB文件', ['aab']);
+
+  const PackageType(this.shortLabel, this.fileLabel, this.extensions);
+
+  final String shortLabel;
+  final String fileLabel;
+  final List<String> extensions;
+}
+
 enum SignatureScheme {
+  auto('默认'),
   v1('V1 (JAR Signature)'),
   v2('V2 (APK Signature Scheme v2, 包含 V1)'),
   v3('V3 (APK Signature Scheme v3, 包含 V1/V2)'),
@@ -36,8 +48,6 @@ enum SignatureScheme {
   const SignatureScheme(this.label);
 
   final String label;
-
-  bool get requiresApkSigner => this != SignatureScheme.v1;
 }
 
 enum SignSource {
@@ -49,15 +59,15 @@ enum SignSource {
   final String label;
 }
 
-class ApkSignerPage extends StatefulWidget {
-  const ApkSignerPage({super.key});
+class PackageSignerPage extends StatefulWidget {
+  const PackageSignerPage({super.key});
 
   @override
-  State<ApkSignerPage> createState() => _ApkSignerPageState();
+  State<PackageSignerPage> createState() => _PackageSignerPageState();
 }
 
-class _ApkSignerPageState extends State<ApkSignerPage> {
-  final _apkController = TextEditingController();
+class _PackageSignerPageState extends State<PackageSignerPage> {
+  final _packageController = TextEditingController();
   final _outputController = TextEditingController();
   final _keystoreController = TextEditingController();
   final _aliasController = TextEditingController();
@@ -65,14 +75,15 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
   final _keyPasswordController = TextEditingController();
   final _logController = TextEditingController();
 
-  SignatureScheme _scheme = SignatureScheme.v2;
+  PackageType _packageType = PackageType.apk;
+  SignatureScheme _scheme = SignatureScheme.auto;
   SignSource _signSource = SignSource.custom;
   bool _saveSignature = false;
   bool _isSigning = false;
 
   @override
   void dispose() {
-    _apkController.dispose();
+    _packageController.dispose();
     _outputController.dispose();
     _keystoreController.dispose();
     _aliasController.dispose();
@@ -89,7 +100,7 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F8FB),
       appBar: const TDNavBar(
-        title: 'Android APK 签名',
+        title: 'Android 签名工具',
         useDefaultBack: false,
       ),
       body: Center(
@@ -115,13 +126,15 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
                 ),
                 child: Column(
                   children: [
+                    _buildPackageTypeRow(theme),
+                    const SizedBox(height: 20),
                     _buildFileRow(
-                      label: 'APK文件',
-                      controller: _apkController,
-                      hintText: '请选择需要签名的 APK 文件',
-                      buttonText: '选择 APK',
+                      label: _packageType.fileLabel,
+                      controller: _packageController,
+                      hintText: '请选择需要签名的 ${_packageType.shortLabel} 文件',
+                      buttonText: '选择${_packageType.shortLabel}',
                       buttonIcon: TDIcons.folder_open,
-                      onTap: _pickApkFile,
+                      onTap: _pickPackageFile,
                     ),
                     const SizedBox(height: 20),
                     _buildFileRow(
@@ -140,9 +153,9 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
                     if (_signSource == SignSource.configured)
                       _buildConfiguredSignaturePlaceholder(theme)
                     else
-                      _buildKeystoreSection(theme),
+                      _buildKeystoreSection(),
                     const SizedBox(height: 24),
-                    _buildPasswordSection(theme),
+                    _buildPasswordSection(),
                     const SizedBox(height: 24),
                     _buildLogSection(theme),
                     const SizedBox(height: 28),
@@ -176,7 +189,7 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
         children: [
           Expanded(
             child: TDText(
-              '温馨提示：批量签名、使用已配置签名、保存签名和自动选择签名策略为预留能力。当前页面优先提供单个 APK 的签名流程。',
+              '当前支持单个 APK/AAB 文件签名。AAB 使用 jarsigner，APK 使用内置 apksig 引擎。',
               style: const TextStyle(
                 fontSize: 16,
                 height: 1.5,
@@ -199,6 +212,57 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPackageTypeRow(TDThemeData theme) {
+    return _buildLabeledRow(
+      label: '文件类型',
+      child: Row(
+        children: PackageType.values.map((type) {
+          final selected = _packageType == type;
+          return Padding(
+            padding: EdgeInsets.only(right: type == PackageType.apk ? 16 : 0),
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _packageType = type;
+                  if (_packageType == PackageType.aab &&
+                      _scheme != SignatureScheme.auto &&
+                      _scheme != SignatureScheme.v1) {
+                    _scheme = SignatureScheme.auto;
+                  }
+                });
+              },
+              child: Container(
+                width: 140,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: selected ? const Color(0xFFE9FFF4) : Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: selected
+                        ? theme.brandNormalColor
+                        : theme.componentStrokeColor,
+                    width: selected ? 1.5 : 1,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  type.shortLabel,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: selected
+                        ? theme.brandNormalColor
+                        : theme.textColorPrimary,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -237,6 +301,7 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
   }
 
   Widget _buildSchemeRow(TDThemeData theme) {
+    final disabled = _packageType == PackageType.aab;
     return _buildLabeledRow(
       label: '签名策略',
       child: GestureDetector(
@@ -245,31 +310,46 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
           height: 48,
           padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            color: theme.whiteColor1,
-            border: Border.all(color: theme.componentStrokeColor),
+            color: disabled ? const Color(0xFFF8FAFC) : theme.whiteColor1,
+            border: Border.all(
+              color: disabled
+                  ? const Color(0xFFE4E7EC)
+                  : theme.componentStrokeColor,
+            ),
             borderRadius: BorderRadius.circular(14),
           ),
           child: Row(
             children: [
               Expanded(
                 child: TDText(
-                  _scheme.label,
+                  _displaySchemeLabel,
                   style: TextStyle(
                     fontSize: theme.fontBodyLarge?.size,
-                    color: theme.textColorPrimary,
+                    color: disabled
+                        ? theme.textColorSecondary
+                        : theme.textColorPrimary,
                   ),
                 ),
               ),
               Icon(
                 TDIcons.chevron_down,
                 size: 20,
-                color: theme.textColorSecondary,
+                color: disabled
+                    ? theme.textColorPlaceholder
+                    : theme.textColorSecondary,
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  String get _displaySchemeLabel {
+    if (_packageType == PackageType.aab) {
+      return 'JAR Signature (AAB 固定)';
+    }
+    return _scheme.label;
   }
 
   Widget _buildSourceSelector(TDThemeData theme) {
@@ -452,13 +532,13 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
     );
   }
 
-  Widget _buildKeystoreSection(TDThemeData theme) {
+  Widget _buildKeystoreSection() {
     return Column(
       children: [
         _buildFileRow(
           label: '密钥文件',
           controller: _keystoreController,
-          hintText: '请选择 .jks 或 .keystore 文件',
+          hintText: '请选择 .jks / .keystore / .p12 / .pfx 文件',
           buttonText: '选择签名',
           buttonIcon: TDIcons.folder_open,
           onTap: _pickKeystoreFile,
@@ -475,7 +555,7 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
     );
   }
 
-  Widget _buildPasswordSection(TDThemeData theme) {
+  Widget _buildPasswordSection() {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -615,10 +695,13 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
     );
   }
 
-  Future<void> _pickApkFile() async {
+  Future<void> _pickPackageFile() async {
     final file = await openFile(
-      acceptedTypeGroups: const [
-        XTypeGroup(label: 'APK', extensions: ['apk']),
+      acceptedTypeGroups: [
+        XTypeGroup(
+          label: _packageType.shortLabel,
+          extensions: _packageType.extensions,
+        ),
       ],
     );
 
@@ -627,7 +710,7 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
     }
 
     setState(() {
-      _apkController.text = file.path;
+      _packageController.text = file.path;
       if (_outputController.text.trim().isEmpty) {
         _outputController.text = File(file.path).parent.path;
       }
@@ -648,7 +731,7 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
   Future<void> _pickKeystoreFile() async {
     final file = await openFile(
       acceptedTypeGroups: const [
-        XTypeGroup(label: 'Keystore', extensions: ['jks', 'keystore']),
+        XTypeGroup(label: 'Keystore', extensions: ['jks', 'keystore', 'p12', 'pfx']),
       ],
     );
 
@@ -661,27 +744,35 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
     });
   }
 
-  Future<void> _showSchemePicker() async {
+  void _showSchemePicker() {
+    final schemeValues = _availableSchemes;
     TDPicker.showMultiPicker(
       context,
       title: '选择签名策略',
       data: [
-        SignatureScheme.values.map((item) => item.label).toList(),
+        schemeValues.map((item) => item.label).toList(),
       ],
-      initialIndexes: [SignatureScheme.values.indexOf(_scheme)],
+      initialIndexes: [schemeValues.indexOf(_scheme)],
       onConfirm: (selectedIndexes) {
         final index = selectedIndexes.first;
-        if (index >= 0 && index < SignatureScheme.values.length) {
+        if (index >= 0 && index < schemeValues.length) {
           setState(() {
-            _scheme = SignatureScheme.values[index];
+            _scheme = schemeValues[index];
           });
         }
       },
     );
   }
 
+  List<SignatureScheme> get _availableSchemes {
+    if (_packageType == PackageType.aab) {
+      return const [SignatureScheme.auto, SignatureScheme.v1];
+    }
+    return SignatureScheme.values;
+  }
+
   Future<void> _startSigning() async {
-    final apkPath = _apkController.text.trim();
+    final packagePath = _packageController.text.trim();
     final outputDir = _outputController.text.trim();
     final keystorePath = _keystoreController.text.trim();
     final alias = _aliasController.text.trim();
@@ -690,8 +781,8 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
         ? _storePasswordController.text
         : _keyPasswordController.text;
 
-    if (apkPath.isEmpty) {
-      _showMessage('请先选择 APK 文件');
+    if (packagePath.isEmpty) {
+      _showMessage('请先选择 ${_packageType.shortLabel} 文件');
       return;
     }
     if (outputDir.isEmpty) {
@@ -707,12 +798,12 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
       return;
     }
 
-    final apkFile = File(apkPath);
+    final packageFile = File(packagePath);
     final keystoreFile = File(keystorePath);
     final outputDirectory = Directory(outputDir);
 
-    if (!apkFile.existsSync()) {
-      _showMessage('APK 文件不存在');
+    if (!packageFile.existsSync()) {
+      _showMessage('${_packageType.shortLabel} 文件不存在');
       return;
     }
     if (!keystoreFile.existsSync()) {
@@ -731,52 +822,30 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
 
     try {
       _appendLog('开始签名，共 1 条');
-      _appendLog('签名策略：${_scheme.label}');
-      _appendLog('输入 APK：$apkPath');
+      _appendLog('文件类型：${_packageType.shortLabel}');
+      _appendLog('签名策略：$_displaySchemeLabel');
+      _appendLog('输入文件：$packagePath');
       _appendLog('输出目录：$outputDir');
       _appendLog('签名别名：$alias');
-      final bundledJava = _resolveBundledJava();
-      final bundledToolJar = _resolveBundledJar('apk-sign-tool.jar');
-      final bundledApkSigJar = _resolveBundledJar('apksig.jar');
 
-      if (bundledJava == null || bundledToolJar == null || bundledApkSigJar == null) {
-        _appendLog('内置签名引擎缺失，应用当前目录中未找到完整工具链。');
-        _appendLog('要求存在：signer/runtime/bin/java(.exe) 与 flutter assets 中的签名 jars。');
-        _showMessage('内置签名引擎缺失');
-        return;
-      }
-
-      final outputPath = _buildOutputPath(apkFile.path, outputDir);
-      final copiedFile = await apkFile.copy(outputPath);
-      _appendLog('已创建输出文件：${copiedFile.path}');
-      _appendLog('使用应用内置签名引擎...');
-      _appendLog('内置 Java：$bundledJava');
-
-      final result = await Process.run(bundledJava, [
-        '-cp',
-        '$bundledToolJar${Platform.isWindows ? ';' : ':'}$bundledApkSigJar',
-        'ApkSignTool',
-        '--input',
-        copiedFile.path,
-        '--output',
-        copiedFile.path,
-        '--keystore',
-        keystorePath,
-        '--alias',
-        alias,
-        '--store-pass',
-        storePassword,
-        '--key-pass',
-        keyPassword,
-        '--enable-v1',
-        _enableV1.toString(),
-        '--enable-v2',
-        _enableV2.toString(),
-        '--enable-v3',
-        _enableV3.toString(),
-        '--enable-v4',
-        _enableV4.toString(),
-      ]);
+      final outputPath = _buildOutputPath(packageFile.path, outputDir);
+      final result = _packageType == PackageType.aab
+          ? await _signAab(
+              inputPath: packagePath,
+              outputPath: outputPath,
+              keystorePath: keystorePath,
+              alias: alias,
+              storePassword: storePassword,
+              keyPassword: keyPassword,
+            )
+          : await _signApk(
+              inputPath: packagePath,
+              outputPath: outputPath,
+              keystorePath: keystorePath,
+              alias: alias,
+              storePassword: storePassword,
+              keyPassword: keyPassword,
+            );
 
       final stdout = result.stdout.toString().trim();
       final stderr = result.stderr.toString().trim();
@@ -793,9 +862,7 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
         _appendLog('签名完成');
         _showMessage('签名成功');
       } else {
-        if (File(outputPath).existsSync()) {
-          File(outputPath).deleteSync();
-        }
+        _cleanupOutput(outputPath);
         _appendLog('签名失败，退出码：${result.exitCode}');
         _showMessage('签名失败');
       }
@@ -811,24 +878,166 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
     }
   }
 
-  String _buildOutputPath(String apkPath, String outputDir) {
-    final basename = File(apkPath).uri.pathSegments.last;
+  Future<ProcessResult> _signApk({
+    required String inputPath,
+    required String outputPath,
+    required String keystorePath,
+    required String alias,
+    required String storePassword,
+    required String keyPassword,
+  }) async {
+    final bundledJava = _resolveBundledJava();
+    final bundledToolJar = _resolveBundledJar('apk-sign-tool.jar');
+    final bundledApkSigJar = _resolveBundledJar('apksig.jar');
+
+    if (bundledJava == null || bundledToolJar == null || bundledApkSigJar == null) {
+      throw const _SignToolException('内置 APK 签名引擎缺失');
+    }
+
+    final copiedFile = await File(inputPath).copy(outputPath);
+    _appendLog('已创建输出文件：${copiedFile.path}');
+    _appendLog('使用应用内置 APK 签名引擎...');
+    _appendLog('内置 Java：$bundledJava');
+
+    return Process.run(bundledJava, [
+      '-cp',
+      '$bundledToolJar${Platform.isWindows ? ';' : ':'}$bundledApkSigJar',
+      'ApkSignTool',
+      '--input',
+      copiedFile.path,
+      '--output',
+      copiedFile.path,
+      '--keystore',
+      keystorePath,
+      '--alias',
+      alias,
+      '--store-pass',
+      storePassword,
+      '--key-pass',
+      keyPassword,
+      '--enable-v1',
+      _enableV1.toString(),
+      '--enable-v2',
+      _enableV2.toString(),
+      '--enable-v3',
+      _enableV3.toString(),
+      '--enable-v4',
+      _enableV4.toString(),
+    ]);
+  }
+
+  Future<ProcessResult> _signAab({
+    required String inputPath,
+    required String outputPath,
+    required String keystorePath,
+    required String alias,
+    required String storePassword,
+    required String keyPassword,
+  }) async {
+    final jarsigner = await _resolveJarSigner();
+    if (jarsigner == null) {
+      throw const _SignToolException('未找到 jarsigner，请先安装 JDK 或将 jarsigner 加入 PATH');
+    }
+
+    _appendLog('使用 jarsigner 执行 AAB 签名...');
+    _appendLog('jarsigner：$jarsigner');
+
+    return Process.run(jarsigner, [
+      '-keystore',
+      keystorePath,
+      '-storepass',
+      storePassword,
+      '-keypass',
+      keyPassword,
+      '-digestalg',
+      'SHA-256',
+      '-sigalg',
+      'SHA256withRSA',
+      '-signedjar',
+      outputPath,
+      inputPath,
+      alias,
+    ]);
+  }
+
+  Future<String?> _resolveJarSigner() async {
+    final javaHome = Platform.environment['JAVA_HOME'];
+    if (javaHome != null && javaHome.trim().isNotEmpty) {
+      final candidate = _joinExecutablePath(javaHome, 'jarsigner');
+      if (candidate.existsSync()) {
+        return candidate.path;
+      }
+    }
+
+    final command = Platform.isWindows ? 'where' : 'which';
+    final result = await Process.run(command, ['jarsigner']);
+    if (result.exitCode != 0) {
+      return null;
+    }
+
+    final lines = result.stdout
+        .toString()
+        .split(RegExp(r'\r?\n'))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (lines.isEmpty) {
+      return null;
+    }
+    return lines.first;
+  }
+
+  File _joinExecutablePath(String root, String executableName) {
+    final suffix = Platform.isWindows ? '.exe' : '';
+    return File(
+      '$root${Platform.pathSeparator}bin${Platform.pathSeparator}$executableName$suffix',
+    );
+  }
+
+  void _cleanupOutput(String outputPath) {
+    final outputFile = File(outputPath);
+    if (outputFile.existsSync()) {
+      outputFile.deleteSync();
+    }
+    final idsigFile = File('$outputPath.idsig');
+    if (idsigFile.existsSync()) {
+      idsigFile.deleteSync();
+    }
+  }
+
+  String _buildOutputPath(String inputPath, String outputDir) {
+    final basename = File(inputPath).uri.pathSegments.last;
     final dotIndex = basename.lastIndexOf('.');
     final name = dotIndex == -1 ? basename : basename.substring(0, dotIndex);
-    return '$outputDir${Platform.pathSeparator}${name}_sign.apk';
+    final ext = _packageType == PackageType.aab ? 'aab' : 'apk';
+    return '$outputDir${Platform.pathSeparator}${name}_sign.$ext';
   }
 
   bool get _enableV1 => true;
 
-  bool get _enableV2 =>
-      _scheme == SignatureScheme.v2 ||
-      _scheme == SignatureScheme.v3 ||
-      _scheme == SignatureScheme.v4;
+  bool get _enableV2 {
+    if (_packageType == PackageType.aab) {
+      return false;
+    }
+    return _scheme == SignatureScheme.auto ||
+        _scheme == SignatureScheme.v2 ||
+        _scheme == SignatureScheme.v3 ||
+        _scheme == SignatureScheme.v4;
+  }
 
-  bool get _enableV3 =>
-      _scheme == SignatureScheme.v3 || _scheme == SignatureScheme.v4;
+  bool get _enableV3 {
+    if (_packageType == PackageType.aab) {
+      return false;
+    }
+    return _scheme == SignatureScheme.v3 || _scheme == SignatureScheme.v4;
+  }
 
-  bool get _enableV4 => _scheme == SignatureScheme.v4;
+  bool get _enableV4 {
+    if (_packageType == PackageType.aab) {
+      return false;
+    }
+    return _scheme == SignatureScheme.v4;
+  }
 
   String? _resolveBundledJava() {
     final executableDir = File(Platform.resolvedExecutable).parent.path;
@@ -862,4 +1071,13 @@ class _ApkSignerPageState extends State<ApkSignerPage> {
       context: context,
     );
   }
+}
+
+class _SignToolException implements Exception {
+  const _SignToolException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }

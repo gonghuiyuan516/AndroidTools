@@ -1,6 +1,7 @@
 import com.android.apksig.ApkSigner;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.Certificate;
@@ -43,13 +44,17 @@ public final class ApkSignTool {
             .setV3SigningEnabled(config.enableV3)
             .setV4SigningEnabled(config.enableV4);
 
+    if (config.enableV4) {
+      builder.setV4SignatureOutputFile(new File(config.outputApk + ".idsig"));
+    }
+
     builder.build().sign();
     System.out.println("SIGN_SUCCESS:" + config.outputApk);
   }
 
   private static KeyStore loadKeyStore(String keystorePath, String password) throws Exception {
     KeyStore keyStore = KeyStore.getInstance(inferStoreType(keystorePath));
-    try (java.io.FileInputStream inputStream = new java.io.FileInputStream(keystorePath)) {
+    try (FileInputStream inputStream = new FileInputStream(keystorePath)) {
       keyStore.load(inputStream, password.toCharArray());
     }
     return keyStore;
